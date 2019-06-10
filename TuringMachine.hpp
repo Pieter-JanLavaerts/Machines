@@ -7,11 +7,9 @@
 
 #include <iostream>
 
-enum Direction {Left, None, Right};
-
 class State{
-	static int statecount;
-	int state;
+	static unsigned int statecount;
+	unsigned int state;
 public:
 	State() { state = ++statecount; }
 	bool operator<(const State& o) const {
@@ -22,96 +20,112 @@ public:
 	}
 	friend bool operator!=(const State& lhs, const State& rhs){ return !(lhs == rhs); }
 };
-int State::statecount = 0;
+unsigned int State::statecount = 0;
 
-template <typename T>
+template <typename T, unsigned int N>
 struct OriginFunction {
 	State state;
-	bool(*f)(T, T);
+	bool(*f)(std::array<T, N>);
 	bool operator< (const OriginFunction& o) const {
 		return
 			std::tie (state, f)
 			< std::tie (o.state, o.f);
 	}
 };
-template <typename T>
+template <typename T, unsigned int N>
 struct OriginArgument {
 	State state;
-	T r;
-	T input;
+	std::array<T, N> input;
 };
-template <typename T>
+template <typename T, unsigned int N>
 struct Destination {
 	State state;
-	std::optional<std::function<T(T, T)>> r;
-	std::optional<std::function<T(T, T)>> output;
-	Direction direction;
+	std::optional<std::function<std::array<T,N>(std::array<T, N>)>> output;
+	std::array<int, N> directions;
 };
-template <typename T>
-class Transition {
-	std::vector<std::pair<OriginFunction<T>, Destination<T>>> m;
+template <typename T, unsigned int N>
+class TransitionFunction {
+	std::vector<std::pair<OriginFunction<T, N>, Destination<T, N>>> m;
 public:
-	Transition(std::vector<std::pair<OriginFunction<T>, Destination<T>>> m_) : m{m_}
+	TransitionFunction(std::vector<std::pair<OriginFunction<T, N>, Destination<T, N>>> m_) : m{m_}
 	{}
-	const std::optional<Destination<T>> at(const OriginArgument<T>& a){
+	std::optional<Destination<T, N>> at(const OriginArgument<T, N>& a) const {
 		for (auto pair : m) {
-			if (pair.first.state == a.state && pair.first.f(a.r, a.input)) {
+			if (pair.first.state == a.state && pair.first.f(a.input)) {
 				return pair.second;
 			}
 		}
 		return std::nullopt;
 	}
 };
-template <typename T>
+template <typename T, unsigned int N>
+class Tapes
+{
+	std::array<std::vector<T>, N> tapes;
+	std::array<int, N> positions;
+public:
+	Tapes(std::array<std::vector<T>, N> tapes_) : tapes{tapes_}, positions{}
+	{};
+	std::array<T, N> read() const {
+		std::array<T, N> result;
+		for (int i = 0; i < N; i++) {
+			result[i] = tapes[i][positions[i]];
+		}
+		return result;
+	}
+	bool move(std::array<int, N> moves) {
+		for (int i = 0; i < N; i++) {
+			positions[i]+=moves[i];
+			if (positions[i] < 0 || positions[i] >= tapes[i].size()) {
+				return false;
+			}
+		}
+		return true;
+	}
+	void write(std::array<T, N> inputs) {
+		for (int i = 0; i < N; i++) {
+			tapes[i][positions[i]] = inputs[i];
+		}
+	}
+	friend std::ostream& operator << (std::ostream& stream, const Tapes& input) {
+		for (std::vector tape : input.tapes) {
+			for (T e : tape) {
+				stream << e << " ";
+			}
+			stream << std::endl;
+		}
+		return stream;
+	}
+};
+template <typename T, unsigned int N>
 class TuringMachine
 {
-	Transition<T> transition_function;
+	TransitionFunction<T, N> transition_function;
 	T r;
 	State start_state;
 	State accept_state;
-	State reject_state;
 public:
-	TuringMachine(Transition<T> transition_function_,
+	TuringMachine(TransitionFunction<T, N> transition_function_,
 				  State start_state_,
-				  State accept_state_,
-				  State reject_state_) :
+				  State accept_state_) :
 		transition_function{transition_function_},
 		start_state{start_state_},
-		accept_state{accept_state_},
-		reject_state{reject_state_}
+		accept_state{accept_state_}
 	{};
-	bool process(std::vector<T>& input) {
-		State current_state = start_state;
-		int position = 0;
-		while (current_state != accept_state && current_state != reject_state && position < input.size() && position >= 0) {
-			std::optional<Destination<T>> maybe_d = transition_function.at(OriginArgument<T>{current_state, r, input[position]});
-			if (maybe_d) {
-				Destination<T> d = maybe_d.value();
-				current_state = d.state;
-				//write to register
-				if (d.r) {
-					r = d.r.value()(r, input[position]);
-				}
-				//write to tape
-				if (d.output) {
-					input[position] = d.output.value()(r, input[position]);
-				}
-				//move head
-				if (d.direction == Left) {
-					position--;
-				}
-				else if (d.direction == Right) {
-					position++;
-				}
+	bool process(Tapes<T, N> &input) {
+		std::optional<Destination<T, N>> maybe_d = transition_function.at(OriginArgument<T, N>{start_state, input.read()});
+		while (maybe_d && maybe_d.value().state != accept_state && input.move(maybe_d.value().directions)) {
+			Destination<T, N> d = maybe_d.value();
+			//write to tapes
+			if (d.output) {
+				std::array<T, N> outputs = d.output.value()(input.read());
+				input.write(outputs);
 			}
-			else {
-				current_state = reject_state;
-			}
+			maybe_d = transition_function.at(OriginArgument<T, N>{d.state, input.read()});
 		}
-		if (current_state == accept_state) {
+		if (maybe_d && maybe_d.value().state == accept_state) {
 			return true;
 		}
 		return false;
-
 	}
 };
