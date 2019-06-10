@@ -4,7 +4,6 @@
 #include <map>
 #include <optional>
 #include <functional>
-
 #include <iostream>
 
 class State{
@@ -40,8 +39,8 @@ struct OriginArgument {
 template <typename T, unsigned int N>
 struct Destination {
 	State state;
-	std::optional<std::function<std::array<T,N>(std::array<T, N>)>> output;
 	std::array<int, N> directions;
+	std::optional<std::function<std::array<T,N>(std::array<T, N>)>> output;
 };
 template <typename T, unsigned int N>
 class TransitionFunction {
